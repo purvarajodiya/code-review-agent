@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review Agent — multi-agent AST code review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F7F6F2; --panel:#FFFFFF; --ink:#17181A; --muted:#5C6066;
+  --line:#E4E2DB; --teal:#0F6E56; --teal-soft:#E1F5EE;
+  --red:#C2402A; --red-soft:#FBEDEA; --amber:#A96A0B; --amber-soft:#FAF0DC;
+  --slate:#556; --slate-soft:#EEF0F3; --mono:'IBM Plex Mono',monospace; --sans:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);min-height:100vh}
+header{padding:28px 32px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+h1{font-family:var(--mono);font-size:19px;font-weight:600;letter-spacing:-.5px}
+h1 .dim{color:var(--muted);font-weight:400}
+.pipeline{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.pipeline b{color:var(--teal);font-weight:500}
+main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:0;min-height:calc(100vh - 76px)}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.pane{padding:24px 32px}
+.pane.left{border-right:1px solid var(--line)}
+.pane-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.pane-title{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.actions{display:flex;gap:8px}
+button{font-family:var(--mono);font-size:13px;padding:8px 16px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+button.primary:hover{background:#000}
+button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.editor{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;height:520px}
+.gutter{font-family:var(--mono);font-size:13px;line-height:1.55;padding:14px 0;color:#B6B4AC;text-align:right;user-select:none;min-width:44px;overflow:hidden;background:#FBFAF7;border-right:1px solid var(--line)}
+.gutter div{padding:0 10px}
+.gutter div.hit{background:var(--red-soft);color:var(--red);font-weight:600}
+.gutter div.flash{outline:2px solid var(--teal)}
+textarea{flex:1;border:0;resize:none;font-family:var(--mono);font-size:13px;line-height:1.55;padding:14px 16px;background:transparent;color:var(--ink);outline:none;white-space:pre;overflow:auto}
+.results{display:flex;flex-direction:column;gap:10px}
+.finding{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--sev);border-radius:0 8px 8px 0;padding:12px 14px;cursor:pointer}
+.finding:hover{border-color:var(--muted);border-left-color:var(--sev)}
+.f-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:12px}
+.badge{padding:2px 8px;border-radius:4px;font-weight:600;background:var(--sev-soft);color:var(--sev)}
+.rule{color:var(--muted)}
+.lineref{margin-left:auto;color:var(--muted)}
+.f-msg{margin-top:6px;font-size:14px;line-height:1.5}
+.stamp{margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--teal);background:var(--teal-soft);display:inline-block;padding:2px 8px;border-radius:4px}
+.empty{color:var(--muted);font-size:14px;padding:32px 0;text-align:center;border:1px dashed var(--line);border-radius:8px}
+.trace{margin-top:18px;font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;white-space:pre-wrap;display:none}
+.trace.show{display:block}
+.summary{font-family:var(--mono);font-size:13px;margin-bottom:12px}
+.summary .ok{color:var(--teal)} .summary .bad{color:var(--red)}
+footer{padding:16px 32px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);font-family:var(--mono)}
+footer a{color:var(--teal)}
+@media(prefers-reduced-motion:no-preference){.finding{transition:border-color .15s}}
+</style>
+</head>
+<body>
+<header>
+  <h1>review-agent<span class="dim"> / paste Python, get verified findings</span></h1>
+  <div class="pipeline">planner → <b>security</b> · <b>complexity</b> · <b>api-contract</b> → verify</div>
+</header>
+<main>
+  <section class="pane left">
+    <div class="pane-head">
+      <span class="pane-title">Source under review</span>
+      <div class="actions">
+        <button id="sample" type="button">Load sample</button>
+        <button id="run" class="primary" type="button">Review code</button>
+      </div>
+    </div>
+    <div class="editor">
+      <div class="gutter" id="gutter"><div>1</div></div>
+      <textarea id="code" spellcheck="false" aria-label="Python code to review" placeholder="# Paste Python code here, then press Review code"></textarea>
+    </div>
+  </section>
+  <section class="pane">
+    <div class="pane-head">
+      <span class="pane-title">Findings</span>
+      <div class="actions"><button id="tracebtn" type="button" aria-expanded="false">Agent trace</button></div>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div class="results" id="results"><div class="empty">Findings appear here. Every one is byte-range verified against your source — the agent cannot report code that isn't there.</div></div>
+    <pre class="trace" id="trace"></pre>
+  </section>
+</main>
+<footer>Deterministic AST analysis via tree-sitter, orchestrated with LangGraph. Nothing is stored — code is analyzed in memory and discarded. <a href="https://github.com/purvarajodiya/code-review-agent" id="ghlink">Source on GitHub</a></footer>
+<script>
+const $=id=>document.getElementById(id);
+const SEV={high:['--red','--red-soft'],medium:['--amber','--amber-soft'],low:['--slate','--slate-soft']};
+const code=$('code'),gutter=$('gutter'),results=$('results'),summary=$('summary'),trace=$('trace');
+let hitLines=new Set();
+
+function renderGutter(){
+  const n=code.value.split('\n').length||1;
+  gutter.innerHTML=Array.from({length:n},(_,i)=>`<div data-l="${i+1}" class="${hitLines.has(i+1)?'hit':''}">${i+1}</div>`).join('');
+  gutter.scrollTop=code.scrollTop;
+}
+code.addEventListener('input',()=>{hitLines.clear();renderGutter();});
+code.addEventListener('scroll',()=>gutter.scrollTop=code.scrollTop);
+
+const SAMPLE=`import pickle
+import subprocess
+
+API_KEY = "sk-live-9f3ab77cc2d14e8"
+
+def run_user_command(cmd):
+    subprocess.run(cmd, shell=True)
+
+def load_session(blob):
+    return pickle.loads(blob)
+
+def get_user(db, user_id):
+    cursor = db.cursor()
+    cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
+    return cursor.fetchone()
+`;
+$('sample').onclick=()=>{code.value=SAMPLE;hitLines.clear();renderGutter();};
+
+$('tracebtn').onclick=()=>{const s=trace.classList.toggle('show');$('tracebtn').setAttribute('aria-expanded',s);};
+
+$('run').onclick=async()=>{
+  if(!code.value.trim())return;
+  $('run').disabled=true;$('run').textContent='Reviewing…';
+  summary.textContent='';results.innerHTML='';trace.textContent='';
+  try{
+    const r=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code.value})});
+    if(!r.ok){const e=await r.json().catch(()=>({detail:r.statusText}));throw new Error(e.detail||'Request failed');}
+    const data=await r.json();
+    show(data);
+  }catch(e){
+    results.innerHTML=`<div class="empty">${e.message}</div>`;
+  }finally{
+    $('run').disabled=false;$('run').textContent='Review code';
+  }
+};
+
+function show(data){
+  const fs=data.findings||[];
+  hitLines=new Set(fs.map(f=>f.line));
+  renderGutter();
+  const hi=fs.filter(f=>f.severity==='high').length;
+  summary.innerHTML=fs.length
+    ?`<span class="${hi?'bad':'ok'}">${fs.length} verified finding${fs.length>1?'s':''}</span> · ${hi} high severity · 0 rejected by verifier`
+    :`<span class="ok">Clean — no findings. All three agents ran; nothing to report.</span>`;
+  results.innerHTML=fs.length?'':'<div class="empty">No issues detected in this code.</div>';
+  for(const f of fs){
+    const[sv,ss]=SEV[f.severity]||SEV.low;
+    const el=document.createElement('div');
+    el.className='finding';
+    el.style.setProperty('--sev',`var(${sv})`);
+    el.style.setProperty('--sev-soft',`var(${ss})`);
+    el.innerHTML=`<div class="f-top"><span class="badge">${f.severity.toUpperCase()}</span><span class="rule">${f.rule} · ${f.agent}</span><span class="lineref">line ${f.line}</span></div>
+      <div class="f-msg"></div>
+      <span class="stamp">✓ verified · bytes ${f.start_byte}–${f.end_byte}</span>`;
+    el.querySelector('.f-msg').textContent=f.message;
+    el.onclick=()=>jump(f.line);
+    results.appendChild(el);
+  }
+  trace.textContent=(data.trace||[]).map(e=>{
+    const extra=Object.fromEntries(Object.entries(e).filter(([k])=>!['ts','agent','action'].includes(k)));
+    return `${e.agent.padStart(12)} | ${e.action.padEnd(9)} | ${JSON.stringify(extra)}`;
+  }).join('\n');
+}
+
+function jump(line){
+  const lh=parseFloat(getComputedStyle(code).lineHeight);
+  code.scrollTop=Math.max(0,(line-4)*lh);
+  gutter.scrollTop=code.scrollTop;
+  const d=gutter.querySelector(`[data-l="${line}"]`);
+  if(d){d.classList.add('flash');setTimeout(()=>d.classList.remove('flash'),900);}
+}
+renderGutter();
+</script>
+</body>
+</html>

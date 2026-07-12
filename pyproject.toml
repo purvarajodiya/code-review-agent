@@ -1,0 +1,21 @@
+[project]
+name = "reviewagent"
+version = "0.1.0"
+description = "Multi-agent AST code review pipeline (LangGraph + tree-sitter)"
+requires-python = ">=3.10"
+dependencies = ["langgraph>=0.2", "tree-sitter>=0.22", "tree-sitter-python>=0.23"]
+
+[project.optional-dependencies]
+llm = ["anthropic>=0.40"]
+web = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+reviewagent = "reviewagent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

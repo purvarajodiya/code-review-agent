@@ -1,0 +1,14 @@
+{
+  "prs": 5000,
+  "seed": 42,
+  "agent": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "baseline": {
+    "precision": 0.632,
+    "recall": 1.0,
+    "f1": 0.774
+  }
+}
