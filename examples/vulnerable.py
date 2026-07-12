@@ -5,7 +5,7 @@ import subprocess
 API_KEY = "sk-live-9f3ab77cc2d14e8"
 
 
-def run_user_command(cmd):
+def run_user_command():
     subprocess.run(cmd, shell=True)
 
 
